@@ -421,6 +421,20 @@ struct CheckpointStmt : Stmt {
 };
 
 /**
+ * @brief Visualization statement (e.g., visualize(tensor, filename="output.ppm")).
+ */
+struct VisualizeStmt : Stmt {
+    std::shared_ptr<Expr> tensor;
+    std::string filename;
+    VisualizeStmt(const Location& loc, std::shared_ptr<Expr> tensor, const std::string& filename)
+        : Stmt(loc), tensor(tensor), filename(filename) {}
+    void validate() const override {
+        if (filename.empty()) throw std::runtime_error("Empty filename at line " + std::to_string(loc.line));
+        tensor->validate();
+    }
+};
+
+/**
  * @brief Fused Matrix Multiplication with ReLU expression for kernel fusion (e.g., fused_matmul_relu(a, b)).
  */
 struct FusedMatmulReluExpr : Expr {

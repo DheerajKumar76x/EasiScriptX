@@ -63,6 +63,7 @@ struct Parser : qi::grammar<Iterator, ast::Program(), qi::space_type> {
         pattern_recognize_stmt = lit("pattern_recognize") >> '(' >> expr >> ',' >> lit("rules:") >> (lit("geometric") | lit("arithmetic")) >> ')';
         checkpoint_stmt = lit("checkpoint") >> '(' >> expr >> ',' >> lit("segments:") >> int_ >> ')';
         agent_tune_stmt = lit("agent_tune") >> '(' >> expr >> ',' >> lit("agents:") >> int_ >> ',' >> lit("target:") >> lexeme[*(char_ - ')')] >> ')';
+        visualize_stmt = lit("visualize") >> '(' >> expr >> ',' >> lit("filename:") >> lexeme[*(char_ - ')')] >> ')';
         stmt = let_stmt [qi::_val = phoenix::new_<ast::LetStmt>(qi::_1, qi::_2, qi::_3)] |
                train_stmt [qi::_val = phoenix::new_<ast::TrainStmt>(qi::_1, qi::_2, qi::_3, qi::_4, qi::_5, qi::_6, qi::_7, qi::_8)] |
                pipeline_parallel_stmt [qi::_val = phoenix::new_<ast::PipelineParallelStmt>(qi::_1, qi::_2, qi::_3)] |
@@ -77,7 +78,8 @@ struct Parser : qi::grammar<Iterator, ast::Program(), qi::space_type> {
                speculative_decode_stmt [qi::_val = phoenix::new_<ast::SpeculativeDecodeStmt>(qi::_1, qi::_2, qi::_3, qi::_4)] |
                pattern_recognize_stmt [qi::_val = phoenix::new_<ast::PatternRecognizeStmt>(qi::_1, qi::_2, qi::_3)] |
                checkpoint_stmt [qi::_val = phoenix::new_<ast::CheckpointStmt>(qi::_1, qi::_2, qi::_3)] |
-               agent_tune_stmt [qi::_val = phoenix::new_<ast::AgentTuneStmt>(qi::_1, qi::_2, qi::_3, qi::_4)];
+               agent_tune_stmt [qi::_val = phoenix::new_<ast::AgentTuneStmt>(qi::_1, qi::_2, qi::_3, qi::_4)] |
+               visualize_stmt [qi::_val = phoenix::new_<ast::VisualizeStmt>(qi::_1, qi::_2, qi::_3)];
         program = *stmt;
     }
 
@@ -107,6 +109,7 @@ private:
     qi::rule<Iterator, ast::PatternRecognizeStmt(), qi::space_type> pattern_recognize_stmt;
     qi::rule<Iterator, ast::CheckpointStmt(), qi::space_type> checkpoint_stmt;
     qi::rule<Iterator, ast::AgentTuneStmt(), qi::space_type> agent_tune_stmt;
+    qi::rule<Iterator, ast::VisualizeStmt(), qi::space_type> visualize_stmt;
     qi::rule<Iterator, std::shared_ptr<ast::Stmt>(), qi::space_type> stmt;
     qi::rule<Iterator, ast::Program(), qi::space_type> program;
 };

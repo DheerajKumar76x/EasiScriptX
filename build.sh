@@ -24,19 +24,6 @@ print_success() {
 print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Function to check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Function to detect OS
-detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         OS="linux"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         OS="macos"

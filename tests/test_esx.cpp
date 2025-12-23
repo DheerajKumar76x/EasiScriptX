@@ -320,6 +320,29 @@ void test_performance_profiling() {
     }
 }
 
+void test_visualize() {
+    std::string source = R"(
+        let x = tensor([[1,0,0],[0,1,0],[0,0,1]])
+        visualize(x, filename: "test_output.ppm")
+    )";
+    try {
+        auto program = esx::parser::parse(source);
+        esx::runtime::Interpreter interpreter;
+        interpreter.run(program);
+        
+        if (std::filesystem::exists("test_output.ppm")) {
+            std::cout << "Visualize test passed" << std::endl;
+            std::filesystem::remove("test_output.ppm");
+        } else {
+            std::cerr << "Visualize test failed: Output file not created" << std::endl;
+            assert(false);
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Visualize test failed: " << e.what() << std::endl;
+        assert(false);
+    }
+}
+
 int main() {
     std::cout << "Running comprehensive EasiScriptX tests..." << std::endl;
     
@@ -349,6 +372,7 @@ int main() {
     test_gradient_checkpointing();
     test_kernel_fusion();
     test_performance_profiling();
+    test_visualize();
     
     std::cout << "All comprehensive tests passed!" << std::endl;
     return 0;
