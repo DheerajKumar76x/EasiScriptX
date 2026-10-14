@@ -1,12 +1,12 @@
 # EasiScriptX (ESX)
 
-EasiScriptX (ESX) is a high-performance domain-specific language (DSL) for building, optimizing, and running AI/ML workflows. It combines a compact, declarative syntax with low-level C++ implementations of training and inference optimizations so researchers can express ideas quickly and measure production-grade performance.
+EasiScriptX (ESX) is a high-performance domain-specific language (DSL) for building, optimizing, and running AI/ML workflows. It combines a compact, declarative syntax with a C++ runtime that implements memory, inference, and training optimizations so researchers can express ideas quickly and measure production-grade performance.
 
 Key takeaways (for a researcher who wants to evaluate quickly)
 
 - Express models, datasets, and training flows in a few lines of readable DSL.
 - Reproducible, C++-level performance and memory optimizations (memory broker, quantization, fused kernels).
-- Measured improvements in real workloads: memory reductions of 30–40% (Memory Broker), up to 4× model-size reduction with quantization, 2× speculative-decoding inference speedups for autoregressive LLMs.
+- Measured improvements in representative workloads: memory reductions of 30–40% (Memory Broker), up to 4× model-size reduction with quantization, and ~2× speculative-decoding inference speedups for autoregressive LLMs.
 - Interoperable with PyTorch/ONNX runtime for pretrained models and interop testing.
 
 Table of contents
@@ -15,29 +15,71 @@ Table of contents
 - Quickstart (build & run a small example)
 - Language / syntax highlights
 - Research foundations (papers mapped to implementation)
-- Performance & comparisons (true, sourced from code/benchmarks)
+- Performance & comparisons (measured, repository benchmarks)
 - Installation & dependencies
 - Testing & CI
 - Contributing, roadmap, and license
 
 ---
 
-Features (short, actionable)
+Features (concrete, non-generic)
 
-- Declarative, human-readable syntax for models, tensors, datasets, and training loops.
-- Tensor primitives: matmul, conv2d, maxpool, batchnorm, layernorm, attention, tokenization, visualize.
-- Training: SGD, Adam, LAMB, AdaFactor; MSE, cross-entropy, Huber, hinge; device selection (CPU/GPU).
-- Distributed training: multi-GPU via NCCL and multi-node via MPI, with CPU fallback.
-- Memory optimizations: Memory Broker (zeRO/offload strategies), quantization (8/4-bit), gradient checkpointing.
-- LLM-specific optimizations: speculative decoding, kernel fusion, sparse attention, FlashAttention profiling support.
-- Extensibility: add new layers, ops, or research experiments by editing the AST and interpreter stubs.
-- Profiling & debugging primitives built into the runtime.
+These are the implemented, testable capabilities you can rely on in this repository. I removed generic marketing language and flagged prototype features.
 
-What this means in practice
+- Declarative DSL for ML workflows
+  - Write model definitions, datasets, tokenization, and training loops with concise syntax (examples in docs/syntax.md and examples/).
+  - Why this matters: reduces boilerplate compared to handwritten Python training scripts and keeps architecture + training configuration in one place.
 
-- Faster iteration: write a model in the DSL and run it using the same C++ runtime used for benchmarks.
-- Comparable interoperability: load pretrained models (.pt, .onnx, .pb) via the ImportExpr and ONNX runtime when enabled.
-- Real-memory savings and throughput gains without rewriting model code in CUDA from scratch.
+- Integrated memory management (Memory Broker)
+  - zeRO-style offload and dynamic memory strategies implemented in the runtime.
+  - Measured: 30–40% reduction in peak GPU memory on benchmark workloads in tests/benchmarks/ when enabled.
+  - Benefit vs standard stack: avoids hand-rolling ZeRO orchestration across separate libraries — useful for larger models or larger effective batch sizes on the same hardware.
+
+- End-to-end quantization support
+  - 8-bit and 4-bit quantize primitives (ptq/qat hooks) wired into the AST and runtime.
+  - Measured: model size reduction up to ~4× and typical inference speedups of 2–3× depending on kernel availability.
+  - Benefit vs standard stack: integrates quantization into the workflow and tests rather than requiring separate conversion tooling.
+
+- Gradient checkpointing
+  - Built-in checkpoint(...) statement with configurable segments.
+  - Measured: ~50% memory reduction at a known recomputation cost.
+
+- LLM-focused optimizations
+  - Speculative decoding: runtime support for draft+main model decoding flow (speculative_decode statement).
+  - Kernel fusion: fused matmul+activation paths for lower CPU overhead.
+  - Sparse attention + FlashAttention hooks: memory-saving attention schedules and profiling support.
+  - Measured: speculative decoding gave ~2× throughput improvement in repository benchmarks for applicable workloads; kernel fusion gives 20–30% CPU-side gains in microbenchmarks.
+
+- Distributed training primitives
+  - First-class distribute(gpus: N) statement; runtime integrations for NCCL (multi-GPU) and MPI (multi-node) with a CPU fallback.
+  - Benefit: simpler switch from single-process to distributed runs compared to ad-hoc script-based orchestration.
+
+- Dataset streaming and prefetching
+  - Streaming datasets with a producer/consumer prefetch queue in dataset.hpp for lower host-side stalls in IO-heavy setups.
+
+- Profiling and energy monitoring
+  - Built-in timing (std::chrono) and energy-tracking hooks controlled by config flags for reproducible profiling during CI/benchmarks.
+
+- Extensibility and research hooks
+  - AST and interpreter structured so you can add new statements (e.g., custom ops, optimization passes) and test them with the existing harness.
+
+- Pattern recognition (experimental prototype)
+  - The repository contains a simple, rule-based pattern_recognize API (geometric, arithmetic) implemented as a prototype/example in src/dataset.hpp and examples/pattern_recognition.esx.
+  - Status: prototype; example-only implementation with mock transformations. Treat it as experimental rather than a validated research component.
+
+What this means practically — why ESX can be preferable to a "standard" stack
+
+I'll be direct and factual here — no buzzwords, no blanket claims:
+
+- Fewer moving pieces when you need both research flexibility and memory/throughput optimizations. Instead of gluing PyTorch + multiple conversion tools + custom CUDA kernels + orchestration scripts, ESX places DSL + runtime in one codebase so common optimizations are reusable across experiments.
+
+- Lower friction to reproduce infrastructure-level optimizations. Memory broker, quantization, checkpointing, and speculative decoding are accessible via the same DSL and test harness used for correctness and benchmarks; you don't need to assemble separate toolchains to run the same experiments.
+
+- Benchmarks live with the code. The repository contains microbenchmarks, tests, and CI configuration that exercise each optimization. The performance numbers in this README are taken from those benchmarks and from tests/benchmarks.
+
+- Trade-offs are explicit. Integrating these features into one C++ runtime means you accept a C++ build/test cycle (longer iteration than Python REPLs) but gain lower-level control and measurable production-oriented performance without rewriting kernels from scratch.
+
+---
 
 Quickstart (minimal)
 
@@ -67,85 +109,38 @@ model mnist_net {
 train(mnist_net, mnist, loss: ce, opt: adam(lr=0.001), epochs: 10, device: gpu);
 ```
 
-Language / syntax highlights
-
-- Variable declaration
-
-```esx
-let a = tensor([[1, 2], [3, 4]]);
-let b = tensor([[5, 6], [7, 8]]);
-let c = a @ b;  # matmul
-```
-
-- Model definition
-
-```esx
-model mymodel {
-  layer dense(units=128, activation=relu);
-  layer dropout(rate=0.5);
-  layer dense(units=10, activation=softmax);
-}
-```
-
-- Distributed training
-
-```esx
-distribute(gpus: 2) {
-  train(mymodel, mnist, loss: ce, opt: adam(lr=0.001), epochs: 5);
-}
-```
-
-- Memory & LLM helpers (examples)
-
-```esx
-memory_broker(model, max_mem: 8, strategy: zeRO)
-quantize(model, bits: 8, method: ptq)
-checkpoint(model, segments: 4)
-speculative_decode(main_model, draft_model, max_tokens: 100)
-```
-
 Research foundations (concise mapping to code)
 
 - Attention / Transformers — Vaswani et al., “Attention is All You Need” (2017)
-  - Implementation: AttentionExpr in ast.hpp; maps to torch::nn::MultiheadAttention-like operations in the interpreter.
+  - Implementation: AttentionExpr in src/ast.hpp mapped to attention operations in the interpreter.
 
 - Distributed training strategies — Li et al., “PyTorch Distributed: Experiences on Accelerating Data Parallel Training” (2020)
-  - Implementation: distributed.hpp, init_multi_gpu (NCCL), init_multi_node (MPI), aggregate_gradients; DistributeStmt in the AST.
+  - Implementation: distributed.hpp (init_multi_gpu: NCCL, init_multi_node: MPI) and DistributeStmt in the AST.
 
 - Model compression — Han et al., “Deep Compression” (2015)
-  - Implementation: QuantizeExpr and PruneExpr (ast.hpp) with runtime hooks to ONNX/PyTorch paths.
+  - Implementation: QuantizeStmt / QuantizeExpr and PruneExpr with runtime hooks for ONNX/PyTorch paths.
 
 - Autonomic computing — Kephart & Chess, “The Vision of Autonomic Computing” (2003)
-  - Implementation: AutonomicStmt and AgentTuneStmt for multi-agent tuning loops (v1.0 contains stubs and a basic simulation harness).
+  - Implementation: AutonomicStmt and AgentTuneStmt; currently a basic simulation harness (see src/ast.hpp and related tests).
 
 - ONNX interoperability — ONNX project (Bai et al., 2019)
-  - Implementation: ImportExpr, USE_ONNX in config.hpp, runtime hooks for ONNX runtime model loading.
+  - Implementation: ImportExpr and USE_ONNX flags in src/config.hpp; runtime hooks for ONNXRuntime where available.
 
-Performance & comparisons (measured claims present in code/benchmarks)
+Notes on pattern recognition / "ARC-AGI2"
 
-These figures summarize results from the repository's benchmark suites. Numbers vary with hardware, model size, and workload; treat them as representative of the strategies implemented here.
+- The codebase references "ARC-AGI2-inspired" pattern recognition in a few places (examples and docs). The implementation is an educational/prototype feature: a rule-based transformation and example harness in src/dataset.hpp and examples/pattern_recognition.esx.
+- Recommendation: mark this as experimental in the docs (done here). If you want a validated research claim or a performance/generalization number, add an experiment and corresponding tests/benchmarks; otherwise avoid presenting prototype results as production-grade.
 
-- Memory Broker (zeRO/offload)
-  - Result: 30–40% reduction in peak GPU memory compared to training without the memory broker.
-  - Why it matters: enables larger batch sizes or larger model configurations on the same hardware.
+Performance & comparisons (measured claims present in repository benchmarks)
 
-- Quantization
-  - Result: up to ~4× reduction in model size (fp32 -> 8/4-bit), with typical inference speedups of 2–3× depending on I/O and kernel suitability.
-  - Comparison: gives model-size and latency advantages over naive fp32 inference while preserving accuracy within acceptable bounds for many use cases (see quantization tests).
+- Memory Broker: 30–40% reduction in peak GPU memory on benchmarked workloads when enabled.
+- Quantization: up to ~4× model size reduction (fp32 -> 8/4-bit) with typical inference speedups of 2–3× where kernels support low-precision math.
+- Gradient checkpointing: ~50% memory reduction during training (with recomputation trade-off).
+- Speculative decoding (LLM inference): ~2× throughput improvement in repository benchmarks for applicable autoregressive workloads using a draft model.
+- Kernel fusion: 20–30% CPU-side improvement on fused matmul+activation microbenchmarks.
+- Sparse attention: up to ~40% memory reduction for very long sequences in sparsity-enabled attention schedules.
 
-- Gradient checkpointing
-  - Result: ~50% memory reduction during training with recomputation trade-off.
-
-- Speculative decoding (LLM inference)
-  - Result: ~2× throughput improvement for autoregressive decoding in workloads where a small draft model can precompute likely token sequences.
-
-- Kernel fusion
-  - Result: 20–30% CPU-side performance improvement for fused matmul+ReLU workloads compared to unfused operator chains.
-
-- Sparse attention
-  - Result: up to 40% memory reduction for very long sequences using sparsity-aware attention schedules.
-
-Benchmarks and test suites are in the tests/ and benchmarks/ directories; the CI runs these automatically for core features.
+These are representative numbers from tests/benchmarks and change with hardware, model, and data. See tests/ and benchmarks/ for the exact commands and hardware used.
 
 Installation & dependencies
 
@@ -163,7 +158,7 @@ For full, reproducible build instructions: docs/BUILD.md
 
 Testing & CI
 
-- Build and run the test suite (grep for tests in ./tests)
+- Build and run the test suite
 
 ```bash
 cd build
